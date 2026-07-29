@@ -50,9 +50,16 @@ jobs:
       fail-fast: false
       matrix:
         # The Python versions BLENDER bundles, not "latest": 3.11 is what the
-        # declared 4.2 floor ships, 3.14 is what 5.2 LTS ships. Testing anything
+        # declared 4.2 floor ships, 3.13 is what 5.2 LTS ships. Testing anything
         # else would be testing an interpreter the addon never runs on.
-        python: ["3.11", "3.14"]
+        #
+        # Source these from upstream's build_files/build_environment/cmake/
+        # versions.cmake at the release tag (v4.2.0 → PYTHON_VERSION 3.11.7;
+        # v5.2.0 → 3.13.13), never from a locally installed Blender: distro
+        # packages routinely link the SYSTEM interpreter rather than bundling
+        # one, so they answer for the distro. That is how 3.14 ended up here
+        # while 3.13 — the version that actually ships — went untested.
+        python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
 

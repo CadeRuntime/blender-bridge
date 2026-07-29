@@ -32,16 +32,23 @@ steps:
       - mypy --config-file pyproject.toml
 
   # The Python versions BLENDER bundles — 3.11 ships with the declared 4.2 floor,
-  # 3.14 with 5.2 LTS. Testing "latest Python" would be testing an interpreter
+  # 3.13 with 5.2 LTS. Testing "latest Python" would be testing an interpreter
   # the addon never runs on.
+  #
+  # Take these from upstream's build_files/build_environment/cmake/versions.cmake
+  # at the release tag (v4.2.0 → PYTHON_VERSION 3.11.7; v5.2.0 → 3.13.13). Do NOT
+  # ask a locally installed Blender: distro packages routinely link the SYSTEM
+  # interpreter instead of bundling one, so it answers for the distro, not for
+  # Blender. That mistake once put 3.14 here and left 3.13 — the version that
+  # actually ships — untested.
   - name: test-py311
     image: docker.io/python:3.11-slim
     commands:
       - python3 -m compileall -q .
       - PYTHONPATH=. python3 -m unittest discover -s test -t test -v
 
-  - name: test-py314
-    image: docker.io/python:3.14-slim
+  - name: test-py313
+    image: docker.io/python:3.13-slim
     commands:
       - python3 -m compileall -q .
       - PYTHONPATH=. python3 -m unittest discover -s test -t test -v
