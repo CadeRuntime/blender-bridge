@@ -1,0 +1,55 @@
+# Canonical CI — this is the gate on what actually lands.
+#
+# The public mirror runs the SAME suite under GitHub Actions
+# (.github/workflows/ci.yml), because that mirror is the only signal an external
+# contributor can ever get: this forge is not reachable from the internet. That
+# duplication is deliberate and it is cheap — the suite needs nothing installed.
+#
+# Keep the two in step. If a check is added here and not there, a contributor's
+# green pull request stops predicting the upstream result, which is worse than
+# having no check at all.
+#
+# Deliberately built on PUBLIC python images rather than an internal CI image:
+# this repository is meant to stand on its own, and tying its gate to another
+# project's image lifecycle is exactly the coupling the extraction removed.
+
+when:
+  - event: [push, pull_request]
+
+clone:
+  git:
+    image: codefloe.com/crow-plugins/clone
+    settings:
+      skip-verify: true
+
+steps:
+  - name: lint
+    image: docker.io/python:3.11-slim
+    commands:
+      # Pinned, so somebody else's linter release cannot turn a green branch red.
+      - pip install --quiet ruff==0.14.2 mypy==1.18.2
+      - ruff check .
+      - mypy --config-file pyproject.toml
+
+  # The Python versions BLENDER bundles — 3.11 ships with the declared 4.2 floor,
+  # 3.14 with 5.2 LTS. Testing "latest Python" would be testing an interpreter
+  # the addon never runs on.
+  - name: test-py311
+    image: docker.io/python:3.11-slim
+    commands:
+      - python3 -m compileall -q .
+      - PYTHONPATH=. python3 -m unittest discover -s test -t test -v
+
+  - name: test-py314
+    image: docker.io/python:3.14-slim
+    commands:
+      - python3 -m compileall -q .
+      - PYTHONPATH=. python3 -m unittest discover -s test -t test -v
+
+  - name: package
+    image: docker.io/python:3.11-slim
+    commands:
+      # The zip is the only artifact a user ever receives, so "the tests pass" is
+      # not the same as "this is installable".
+      - python3 package.py build
+      - ls -l dist/

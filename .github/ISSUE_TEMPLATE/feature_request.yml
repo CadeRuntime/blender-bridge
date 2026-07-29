@@ -1,0 +1,37 @@
+name: Feature request
+description: Something the addon should be able to do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is a **mirror** of a canonical upstream — see
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: |
+        The workflow you are stuck on, rather than the solution you have in mind.
+        Knowing the problem often turns up a better answer than the one either of
+        us started with.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you had in mind
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      description: |
+        The addon has no third-party dependencies and cannot gain any — Blender
+        ships no package manager for extensions.
+      options:
+        - label: This can be done with the Python standard library and `bpy` alone

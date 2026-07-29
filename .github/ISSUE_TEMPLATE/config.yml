@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: The catalog HTTP contract
+    url: https://cade.run/api/assets-http/
+    about: How uploads, dedupe, tags and the limits behave — the published API reference.
+  - name: showcade
+    url: https://show.cade.run
+    about: The product this addon uploads to.

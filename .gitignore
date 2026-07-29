@@ -1,0 +1,11 @@
+# Build output — `python3 package.py build` writes the installable zip here.
+/dist/
+
+# Python bytecode. `python3 -m compileall .` is the fast syntax gate and leaves
+# these behind everywhere, including inside test/.
+__pycache__/
+*.py[cod]
+
+# Tool caches
+.ruff_cache/
+.mypy_cache/

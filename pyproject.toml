@@ -1,0 +1,125 @@
+# Python toolchain for the Blender addon (bd showcade-8i87.1).
+#
+# ADR-0007 deferred ruff/mypy at ~500 lines with "revisit past ~600"; the tree is
+# ~5,600 now, and it is about to become a PUBLIC repo where the only gate a
+# drive-by contributor sees is CI. `python3 -m compileall` parses without
+# importing, so it catches a syntax error and literally nothing else.
+#
+# This file is deliberately the WHOLE Python config: at extraction this directory
+# becomes the blender-bridge repo root, and pyproject.toml lands exactly where a
+# Python repo expects it. Nothing here reaches back into showcade.
+#
+# THE ADDON HAS NO DEPENDENCIES AND MUST KEEP NONE. `transport.py`, `exporter.py`,
+# `policy.py` and `worker.py` are stdlib-only on purpose (ADR-0007 decision 7) —
+# that is what lets them be tested without Blender. There is no [project]
+# dependencies table here and adding one is a design change, not a convenience.
+
+[tool.ruff]
+# Blender 4.2 — the addon's declared floor — bundles Python 3.11. This is not a
+# style knob: it stops every `UP` rule from proposing syntax the interpreter the
+# addon actually runs on cannot parse.
+target-version = "py311"
+
+# The tree's real width. Ruff's 88 default would report 235 lines as too long,
+# which is a statement about ruff's defaults and not about this code.
+line-length = 110
+
+extend-exclude = ["dist"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes — the unused/undefined-name class
+    "I",       # import sorting
+    "B",       # bugbear — the real bug-shaped rules
+    "C4",      # comprehension misuse
+    "UP",      # pyupgrade, floored at py311 above
+    "SIM",     # simplifications
+    "RET",     # return-path smells
+    "RUF",     # ruff's own
+]
+
+ignore = [
+    # RUF002 flags "ambiguous" unicode in DOCSTRINGS — here, en dashes and a
+    # multiplication sign in English prose. The rule exists to catch homoglyph
+    # confusion in identifiers, where it is worth having; applied to prose it
+    # would ask us to degrade the writing to satisfy a security rule that no
+    # longer has anything to secure.
+    "RUF002",
+]
+
+# Formatting-shaped rules (COM, ISC, Q) are deliberately NOT selected: those are a
+# formatter's job, and selecting them here would mean 42 trailing-comma findings
+# that say nothing about correctness. PTH (os.path → pathlib) is left out for the
+# same reason — 13 findings, zero bugs, and it would churn code that works.
+
+[tool.ruff.lint.per-file-ignores]
+# Blender dictates these, not us.
+#
+# RUF012: `bpy` classes declare their UI surface as plain class attributes
+# (`bl_idname`, `bl_options = {"REGISTER"}`); Blender's RNA registration reads
+# them off the class. `ClassVar` is not how any Blender addon is written and
+# would be actively misleading to the next person reading it.
+# UP012 would rewrite `"...".encode("utf-8")` to `.encode()`. Identical bytes —
+# UTF-8 IS the default — but this module is the multipart wire encoder, where the
+# encoding is the load-bearing detail and stating it is documentation, not
+# redundancy. The rule stays on everywhere else.
+"showcade_bridge/transport.py" = ["UP012"]
+
+"showcade_bridge/ops.py" = ["RUF012"]
+"showcade_bridge/panel.py" = ["RUF012"]
+"showcade_bridge/prefs.py" = ["RUF012"]
+"showcade_bridge/props.py" = ["RUF012"]
+"test/fake_bpy.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["showcade_bridge", "package.py"]
+
+# MYPY'S SCOPE IS EXACTLY THE bpy-FREE MODULES, and that is not a coincidence or
+# a convenience — it is the same boundary ADR-0007 decision 7 already draws, and
+# the same one the test suite rests on. A module that imports `bpy` cannot be
+# meaningfully checked without Blender: `bpy` is not installed here and never will
+# be in CI (that being the whole point), and Blender's property idiom
+#
+#     link_id: bpy.props.StringProperty(name="…")
+#
+# is an ANNOTATION whose value is a function CALL. Blender's RNA registration
+# reads it off the class; mypy sees an invalid type and there is no way to write
+# it that satisfies both. props.py and prefs.py alone produced 25 such errors, none
+# of them defects. Excluding those files is therefore honest, not a concession —
+# and the exclusion is BY NAME so that a new bpy-free module is picked up
+# automatically, while a new bpy-importing one fails loudly until it is listed.
+#
+# What this leaves checked is the half that matters and the half a contributor can
+# actually run: transport, deviceauth, exporter, policy, worker, send, __init__.
+exclude = "(^|/)(dist|test)/|showcade_bridge/(export_glb|ops|panel|prefs|props)\\.py$"
+
+# `test/` is excluded too. It is 40 errors of Optional-narrowing noise from
+# `assertIsNotNone(x)` followed by `x.foo` — mypy does not narrow through a
+# unittest assertion — plus mock objects that are dynamic by design. The tests
+# have a far stronger gate than a type checker: 193 of them RUN, and the live half
+# runs against a real catalog service.
+
+# The floor, applied everywhere checked.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+
+# The transport contract, the export decisions and the thread hand-off carry the
+# risk worth typing strictly: they are the wire format, the compression clamp and
+# the off-main-thread boundary respectively.
+[[tool.mypy.overrides]]
+module = [
+    "showcade_bridge.transport",
+    "showcade_bridge.deviceauth",
+    "showcade_bridge.exporter",
+    "showcade_bridge.policy",
+    "showcade_bridge.worker",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true

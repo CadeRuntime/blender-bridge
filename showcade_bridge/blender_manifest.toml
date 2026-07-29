@@ -1,0 +1,38 @@
+# Blender 4.2+ extension manifest (`task blender:package` zips this directory).
+#
+# `permissions.network` is the line that is easy to miss and impossible to work
+# around: 4.2's extension model DENIES network access unless the manifest asks
+# for it, so without this the addon installs cleanly and every send fails with a
+# permission error that looks like a transport bug.
+#
+# `bl_info` in __init__.py stays for the legacy-addon install path; where both
+# exist, the extension loader reads THIS file. Keep `version` in sync with it —
+# `test_packaging.py` fails the build if they drift.
+schema_version = "1.0.0"
+
+id = "showcade_bridge"
+version = "0.1.0"
+name = "Showcade Bridge"
+tagline = "Send the selection to showcade's asset catalog as a GLB"
+maintainer = "showcade <caderuntime@cade.run>"
+type = "add-on"
+website = "https://github.com/caderuntime/blender-bridge"
+tags = ["Import-Export", "Pipeline"]
+
+# 4.2 is the first release with the extension system; nothing here needs newer.
+blender_version_min = "4.2.0"
+
+# The addon links against `bpy`, so it is GPL by construction.
+license = ["SPDX:GPL-3.0-or-later"]
+
+# Uploads go to whatever endpoint the preferences name — by default the local
+# `task dev:assets` catalog on :8787. Nothing is fetched, only POSTed/DELETEd.
+[permissions]
+network = "Upload the exported GLB to the showcade asset catalog"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  ".*",
+]

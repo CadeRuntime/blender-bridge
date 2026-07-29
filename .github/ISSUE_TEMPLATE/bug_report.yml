@@ -1,0 +1,54 @@
+name: Bug report
+description: Something the addon did that it should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: this repository is a **mirror** of a canonical upstream —
+        see [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md). Issues here are read;
+        pull requests are landed upstream and arrive back by mirror.
+
+  - type: input
+    id: blender
+    attributes:
+      label: Blender version
+      description: Help ▸ About Blender. The addon's floor is 4.2.
+      placeholder: "5.2.0 LTS"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: |
+        What you sent, and what the addon reported. Quote its message exactly if
+        there was one — they are written to name a fix rather than a status code,
+        so the wording carries information.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: |
+        Window ▸ Toggle System Console on Windows, or launch Blender from a
+        terminal on Linux/macOS. Optional, but usually decisive.
+      render: text

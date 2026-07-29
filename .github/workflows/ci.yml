@@ -1,0 +1,92 @@
+# CI for external contributors.
+#
+# This repository is a MIRROR of a canonical upstream that is not reachable from
+# GitHub, so the CI that gates what actually lands runs there and you cannot see
+# it. That is exactly why this file exists: without it a contributor's pull
+# request would get no signal at all, and we would be asking strangers to trust a
+# green check they cannot run. See CONTRIBUTING.md.
+#
+# The two run the same suite, so a green result here is a real prediction of the
+# upstream result rather than a weaker parallel check.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff + mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The addon's declared floor. Linting on it is what stops a rule from
+          # proposing syntax the oldest supported Blender cannot parse.
+          python-version: "3.11"
+
+      # Pinned, not floating: an unpinned linter turns somebody else's release
+      # into a red build on a pull request that changed nothing.
+      - run: pip install ruff==0.14.2 mypy==1.18.2
+
+      - run: ruff check .
+
+      # Scoped to the Blender-free modules by pyproject.toml. The UI half
+      # annotates properties as `x: bpy.props.StringProperty(...)` — an
+      # annotation whose value is a call, which no type checker accepts.
+      - run: mypy --config-file pyproject.toml
+
+  test:
+    name: unittest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The Python versions BLENDER bundles, not "latest": 3.11 is what the
+        # declared 4.2 floor ships, 3.14 is what 5.2 LTS ships. Testing anything
+        # else would be testing an interpreter the addon never runs on.
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Deliberately NO dependency install step. The addon and its tests are
+      # standard library only, and the catalog service is faked in-process, so
+      # there is nothing to install. If this step ever becomes necessary,
+      # something has taken a dependency that the addon cannot afford — Blender
+      # ships no package manager for extensions.
+      - name: Syntax gate
+        run: python3 -m compileall -q .
+
+      - name: Tests
+        run: PYTHONPATH=. python3 -m unittest discover -s test -t test -v
+
+  package:
+    name: build the extension zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The zip is the only artifact a user ever receives, so "the tests pass"
+      # is not the same as "this is installable". Build it on every change.
+      - run: python3 package.py build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: showcade_bridge-extension
+          path: dist/*.zip
+          if-no-files-found: error
