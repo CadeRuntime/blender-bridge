@@ -252,13 +252,32 @@ jobs:
           # If this fails while everything above passed, the Release is fine and
           # only the index is behind: re-run this job, or `wrangler pages deploy`
           # by hand. Nothing needs re-tagging.
+          served=""
           for attempt in 1 2 3 4 5; do
             if curl -fsS --max-time 30 https://extensions.cade.run/index.json > published.json; then
+              served=yes
               break
             fi
             echo "attempt $attempt: index not served yet; waiting"
             sleep 10
           done
+
+          # Say WHICH failure this is rather than letting the comparison below die
+          # on a missing file: "the URL never answered" and "the URL answered with
+          # the wrong index" have different causes (domain/TLS/challenge versus a
+          # deploy that went somewhere else) and a FileNotFoundError traceback
+          # names neither.
+          if [ -z "$served" ]; then
+            echo "::error::https://extensions.cade.run/index.json did not answer after 5 tries."
+            echo "::error::The Release IS published and its zip is downloadable — only the"
+            echo "::error::index is behind, so nothing needs re-tagging. Check that the custom"
+            echo "::error::domain is attached to the '$PAGES_PROJECT' project and that the zone"
+            echo "::error::is not challenging the request (Blender's updater is not a browser,"
+            echo "::error::so bot-fight mode presents as a broken repository). Then re-run this"
+            echo "::error::job, or deploy the index by hand."
+            exit 1
+          fi
+
           python3 - <<'PY'
           import json
           import pathlib
