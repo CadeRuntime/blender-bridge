@@ -1,0 +1,306 @@
+# Publish the extension repository index — from HERE, not from GitHub.
+#
+# WHAT A USER CONSUMES is https://extensions.cade.run/index.json, a Blender 4.2+
+# extension repository: one static listing naming each available extension with
+# the URL, byte size and sha256 of its zip. They paste that URL into Blender once
+# and it is re-read forever, so this file is the update channel.
+#
+# THE SPLIT, AND WHY IT IS THIS WAY ROUND.
+#
+#   canonical tag -> mirror -> GitHub Actions: build the zip, publish the Release
+#                -> THIS PIPELINE: fetch that published zip, write index.json,
+#                   deploy it to Cloudflare Pages
+#
+# A GitHub Release is not a git object, so a push mirror cannot carry one — only
+# GitHub can create it, which is why the Release half lives in
+# .github/workflows/release.yml and cannot move here.
+#
+# The INDEX half could have lived there too, and originally did. It was moved
+# because publishing it needs a Cloudflare credential, and that credential would
+# then have to sit in the secrets of a PUBLIC repository. Cloudflare API tokens
+# cannot be scoped to a single Pages project — Pages permissions are account-wide
+# — so the smallest token that can deploy this one JSON file can also redeploy
+# every other Pages project on the account, including the one fronting
+# show.cade.run. That is a poor thing to store in a repo anyone can open a pull
+# request against. Here, the token never leaves the lab.
+#
+# WHAT IT COSTS is ordering: this pipeline starts when the tag lands upstream,
+# which is BEFORE the mirror has carried it to GitHub and long before Actions has
+# finished building. So it waits for the Release asset rather than assuming it.
+# That turned out to be an improvement rather than a tax — see below.
+
+when:
+  - event: tag
+
+clone:
+  git:
+    image: codefloe.com/crow-plugins/clone
+    settings:
+      skip-verify: true
+
+variables:
+  # The published artifact is the SOURCE OF TRUTH for the index, not a local
+  # rebuild: the hash and size have to describe the bytes users actually
+  # download. This pipeline therefore fetches the Release asset and indexes THAT,
+  # and separately proves a local build is byte-identical to it.
+  - &python docker.io/python:3.11-slim
+
+steps:
+  # ── 1. Fail fast on the mistake that would otherwise time out ──
+  #
+  # If the tag and the manifest disagree, GitHub's job refuses to publish and no
+  # asset ever appears — which, without this check, would surface here 25 minutes
+  # later as "the Release never showed up", pointing at the mirror or at Actions
+  # instead of at the two-line discrepancy that caused it.
+  - name: the-tag-must-match-the-manifest
+    image: *python
+    commands:
+      - |
+        python3 - <<'PY'
+        import os
+        import sys
+        import tomllib
+
+        tag = os.environ["CI_COMMIT_TAG"]
+        with open("showcade_bridge/blender_manifest.toml", "rb") as handle:
+            manifest_version = tomllib.load(handle)["version"]
+
+        if tag.removeprefix("v") != manifest_version:
+            print(f"tag {tag} says version {tag.removeprefix('v')!r}, but the manifest")
+            print(f"says {manifest_version!r}. The zip is named from the MANIFEST, so nothing")
+            print("consistent can be published from this pair. Fix the manifest (and bl_info,")
+            print("which test_packaging keeps in step) and re-tag.")
+            sys.exit(1)
+        print(f"version {manifest_version}")
+        PY
+
+  # ── 2. Wait for the Release, then take the actual bytes ────────
+  #
+  # This is the ordering guarantee, and it is stronger than the arrangement it
+  # replaced. The index cannot advertise an asset that does not exist, because it
+  # is not written until that asset has been successfully DOWNLOADED here. The
+  # previous design created the Release and then immediately wrote an index
+  # describing it, trusting that a just-created asset is fetchable.
+  #
+  # An index pointing at a missing zip fails on every user's machine; a Release
+  # nobody has been told about yet is merely quiet. So waiting is the cheap side.
+  - name: await-the-published-release-asset
+    image: *python
+    commands:
+      - |
+        python3 - <<'PY'
+        import os
+        import pathlib
+        import time
+        import tomllib
+        import urllib.error
+        import urllib.request
+
+        tag = os.environ["CI_COMMIT_TAG"]
+        with open("showcade_bridge/blender_manifest.toml", "rb") as handle:
+            manifest = tomllib.load(handle)
+        name = f"{manifest['id']}-{manifest['version']}.zip"
+        url = f"https://github.com/caderuntime/blender-bridge/releases/download/{tag}/{name}"
+        print(f"waiting for {url}")
+
+        # Generous, because three things have to happen first: the push mirror
+        # carries the tag to GitHub, Actions schedules the job, and that job runs
+        # the full test suite before it publishes anything.
+        deadline = time.time() + (25 * 60)
+        agent = "showcade-bridge-release/1.0 (+https://github.com/caderuntime/blender-bridge)"
+        payload = None
+        while payload is None:
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": agent})
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    payload = response.read()
+            except urllib.error.HTTPError as exception:
+                if exception.code not in (403, 404):
+                    raise
+            except urllib.error.URLError as exception:
+                print(f"  transient: {exception}")
+            if payload is None:
+                if time.time() > deadline:
+                    print(f"the Release asset never appeared: {url}")
+                    print("Check, in this order:")
+                    print("  1. did the tag reach GitHub at all? The push mirror has to carry")
+                    print("     it, and a mirror with no sync trigger carries nothing")
+                    print("     (bd showcade-6vtd).")
+                    print("  2. did the Release workflow run there, and did it pass?")
+                    print("NOTHING has been published by this pipeline; re-run it once the")
+                    print("Release exists. The tag does not need cutting again.")
+                    raise SystemExit(1)
+                time.sleep(30)
+
+        pathlib.Path("published").mkdir(exist_ok=True)
+        out = pathlib.Path("published") / name
+        out.write_bytes(payload)
+        print(f"fetched {out} ({len(payload)} bytes)")
+        PY
+
+  # ── 3. Turn "reproducible" into something that is actually checked ──
+  #
+  # package.py's determinism (sorted entries, fixed timestamps, no __pycache__)
+  # is asserted by the unit tests against itself. This asserts it across
+  # MACHINES: the zip GitHub built and published, and the zip this pipeline
+  # builds from the same tag, must be byte-identical.
+  #
+  # It is a real check, not a ceremony. A mismatch means the published artifact
+  # is not the one this source produces — a tampered or corrupted upload, a
+  # workflow building from the wrong ref, or a determinism regression — and every
+  # one of those is a reason to stop before advertising it to Blender.
+  - name: the-published-zip-must-be-reproducible
+    image: *python
+    commands:
+      - |
+        python3 - <<'PY'
+        import hashlib
+        import pathlib
+        import sys
+
+        import package
+
+        published = next(pathlib.Path("published").glob("*.zip"))
+        rebuilt = package.build()  # writes dist/<id>-<version>.zip
+
+        digests = {
+            role: hashlib.sha256(path.read_bytes()).hexdigest()
+            for role, path in (("published", published), ("rebuilt", rebuilt))
+        }
+        for role, digest in digests.items():
+            print(f"{role:10s} sha256:{digest}")
+
+        if digests["published"] != digests["rebuilt"]:
+            print()
+            print("THE PUBLISHED ZIP IS NOT WHAT THIS SOURCE BUILDS.")
+            print(f"  published {published.name}: {published.stat().st_size} bytes")
+            print(f"  rebuilt   {rebuilt.name}: {rebuilt.stat().st_size} bytes")
+            print("Do not publish an index for it. Either the Release was built from a")
+            print("different tree, or package.py's determinism has regressed — the unit")
+            print("tests check that within one machine, this checks it across two.")
+            sys.exit(1)
+        print("identical — the Release asset is exactly what this tag builds")
+        PY
+
+  # ── 4. Write the listing, from the downloaded bytes ────────────
+  - name: write-the-index
+    image: *python
+    commands:
+      - |
+        set -eu
+        ZIP="$(ls published/*.zip)"
+        ZIP_NAME="$(basename "$ZIP")"
+        # The asset URL GitHub serves for a Release upload is deterministic —
+        # /releases/download/<tag>/<filename> — and step 2 just proved this exact
+        # one resolves, because it downloaded from it.
+        python3 index.py \
+          --zip "$ZIP" \
+          --archive-url "https://github.com/caderuntime/blender-bridge/releases/download/$CI_COMMIT_TAG/$ZIP_NAME" \
+          --out site/index.json
+        cat site/index.json
+
+  # ── 5. Publish it ──────────────────────────────────────────────
+  #
+  # Node image rather than the python one above: wrangler is a Node CLI. This
+  # repository deliberately builds on PUBLIC images rather than an internal CI
+  # image — tying its gate to another project's image lifecycle is exactly the
+  # coupling the extraction removed — so wrangler comes from npx, pinned.
+  #
+  # THE SECRETS LIVE HERE, IN THE LAB. CLOUDFLARE_API_TOKEN and
+  # CLOUDFLARE_ACCOUNT_ID are crow repository secrets on caderuntime/blender-bridge.
+  # A `from_secret` naming a secret that does not exist FAILS the step rather than
+  # arriving empty, so a missing one is loud.
+  - name: deploy-the-index
+    image: docker.io/node:24-slim
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: CLOUDFLARE_API_TOKEN
+      CLOUDFLARE_ACCOUNT_ID:
+        from_secret: CLOUDFLARE_ACCOUNT_ID
+    commands:
+      - |
+        set -eu
+        # LOOK BEFORE DEPLOYING. `wrangler pages deploy` offers a create-this-
+        # missing-project prompt, and a non-TTY answers it YES: a typo would
+        # invent a project, publish there, exit 0, and leave extensions.cade.run
+        # serving the previous index while the log said success.
+        if ! npx --yes wrangler@4.112.0 pages project list 2>/dev/null \
+            | grep -qE '(^|[[:space:]|])blender-bridge([[:space:]|]|$)'; then
+          echo "no Cloudflare Pages project named 'blender-bridge' on this account."
+          echo "Create it, and attach extensions.cade.run, before tagging a release"
+          echo "(bd showcade-8i87.11). Nothing has been published by this run."
+          exit 1
+        fi
+
+        # DIRECT UPLOAD of a one-file site that exists nowhere in git. --branch
+        # must name the project's PRODUCTION branch: any other value publishes a
+        # PREVIEW under its own alias, which would succeed, print a URL, and
+        # leave the custom domain serving the old index.
+        npx --yes wrangler@4.112.0 pages deploy site \
+          --project-name=blender-bridge \
+          --branch=main \
+          --commit-hash="$CI_COMMIT_SHA" \
+          --commit-dirty=true
+
+  # ── 6. Prove it from the address users actually paste in ───────
+  - name: verify-the-published-index
+    image: *python
+    commands:
+      - |
+        python3 - <<'PY'
+        import json
+        import pathlib
+        import time
+        import urllib.error
+        import urllib.request
+
+        # END TO END, and the only check that covers the custom domain, its
+        # certificate and the zone's bot-fight rules at once — Blender's updater
+        # is not a browser, so a challenge would present as a broken repository
+        # rather than as a challenge.
+        #
+        # THE USER-AGENT IS LOAD-BEARING, and this was measured rather than
+        # guessed: Cloudflare answers urllib's default `Python-urllib/3.x` with
+        # 403 on the very index this pipeline publishes, while curl gets 200.
+        # Without a name here, this step would fail on a perfectly good release
+        # and send someone hunting a deploy that had in fact worked.
+        #
+        # It is also why Blender itself is fine: blender_ext.py sets its own
+        # user_agent on every request (url_request_headers_create), so the
+        # extension client never sends the default. A real Blender 5.2 synced
+        # this repository successfully while plain urllib was being refused.
+        expected = json.loads(pathlib.Path("site/index.json").read_text())
+        url = "https://extensions.cade.run/index.json"
+        agent = "showcade-bridge-release/1.0 (+https://github.com/caderuntime/blender-bridge)"
+
+        published = None
+        for attempt in range(5):
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": agent})
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    published = json.loads(response.read())
+                break
+            except (urllib.error.URLError, ValueError) as exception:
+                print(f"attempt {attempt + 1}: {exception}")
+                time.sleep(10)
+
+        if published is None:
+            print(f"{url} did not answer.")
+            print("The Release IS published and its zip is downloadable — only the index")
+            print("is behind, so nothing needs re-tagging. Check that the custom domain is")
+            print("attached to the blender-bridge project AND that its DNS record exists")
+            print("(attaching via the API does not create one), then re-run this pipeline.")
+            raise SystemExit(1)
+
+        if published != expected:
+            print(f"{url} is not what this pipeline wrote.")
+            print(f"published: {json.dumps(published)[:400]}")
+            print("Most likely the deploy landed on a preview alias rather than the")
+            print("production branch. Re-running is safe.")
+            raise SystemExit(1)
+
+        entry = published["data"][0]
+        print(f"published {entry['id']} {entry['version']}")
+        print(f"  {entry['archive_url']}")
+        print(f"  {entry['archive_hash']}")
+        PY
