@@ -39,12 +39,19 @@ on:
   push:
     tags: ["v*"]
 
-  # ESCAPE HATCH, and it exists because of a genuine unknown: a tag that arrives
-  # by MIRROR is an ordinary push and should trigger the `push` event above, but
-  # mirror semantics are the one part of this path that cannot be tested until the
-  # first real tag crosses. If it turns out not to fire, run this by hand with the
-  # tag name instead of hand-uploading a zip — the point is that the published
-  # artifact always comes from this job.
+  # ESCAPE HATCH for the last unproven link in the chain: whether a ref that
+  # arrives by MIRROR raises the event this workflow listens for.
+  #
+  # HALF OF THAT IS NOW ANSWERED, and the answer is yes. On 2026-07-30 a mirror
+  # sync pushed main here at 14:25:55Z and GitHub Actions ran the CI workflow on
+  # it three seconds later (event `push`, head bb3ce58, success). A mirrored push
+  # is an ordinary push as far as Actions is concerned, so there is no reason a
+  # mirrored TAG should behave differently — but that specific case stays untested
+  # until the first release, which is why this input remains.
+  #
+  # If it does not fire, run this by hand with the tag name rather than
+  # hand-uploading a zip: the point is that the published artifact always comes
+  # from this job, built by public CI from public source.
   workflow_dispatch:
     inputs:
       tag:
