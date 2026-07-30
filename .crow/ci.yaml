@@ -21,6 +21,13 @@ clone:
     image: codefloe.com/crow-plugins/clone
     settings:
       skip-verify: true
+      # FULL HISTORY, because `merge-commit-authorship` below reads every merge
+      # commit and the default clone is SHALLOW — over a truncated history that
+      # check finds no merges and reports success, which is the one outcome a
+      # guard must never produce. This repository is a few dozen commits, so a
+      # full clone costs nothing measurable.
+      partial: false
+      depth: 0
 
 steps:
   # The forge's merge button authors the merge commit as whoever clicked it, so a
@@ -40,8 +47,15 @@ steps:
         set -eu
         # Fail closed on a shallow clone: `git log` over a truncated history
         # would find no merges and pass while checking nothing.
+        #
+        # The clone above asks for full history, so this is a fallback for the day
+        # that setting is changed or ignored. It needs sslVerify off for the same
+        # reason the clone plugin takes skip-verify — the lab forge serves a
+        # self-signed certificate, and this image trusts no local issuer. Without
+        # it the fetch fails with "unable to get local issuer certificate", which
+        # is what the first run of this guard did.
         if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-          git fetch --unshallow --quiet || {
+          git -c http.sslVerify=false fetch --unshallow --quiet || {
             echo "shallow clone and could not deepen it — this check would pass vacuously"
             exit 1
           }
