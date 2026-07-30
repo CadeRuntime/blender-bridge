@@ -86,6 +86,35 @@ pull request afterwards with the landed sha, promptly: the gap between the mirro
 push and that close is the confusing window described above, and it is on us to
 keep it short.
 
+### Merging an upstream pull request (for maintainers)
+
+Our own pull requests live on the canonical forge, and there is a trap in landing
+them the obvious way. **`fj pr merge`, and the forge's merge button, author the
+merge commit as the account that clicked it** — not as the project. Every other
+commit here is `caderuntime <caderuntime@cade.run>`, so one click puts a personal
+identity into the public history of a public repository, and the only remedy
+afterwards is rewriting published history. That has been needed twice already.
+
+So merge locally, where this repository's own git config already supplies the
+right identity:
+
+```bash
+git switch main && git pull --ff-only
+git merge --no-ff <branch> -m "Merge pull request '<title>' (#<n>) from <branch> into main"
+# run the suite, then
+git push origin main
+fj pr close <n>                      # the commits are already on main
+git push origin --delete <branch>
+```
+
+`--no-ff` is deliberate: it keeps the pull request visible as a unit rather than
+flattening it into `main`.
+
+The guard is the **merge-commit-authorship** step in CI, which fails if any merge
+commit on `main` was authored by anyone but the project identity. It checks
+*merge commits only* — contributor commits keep their own `Author:`, which is the
+promise made above and must never be "fixed".
+
 ## Issues
 
 GitHub Issues is the external tracker and we read it. It is deliberately **not**
