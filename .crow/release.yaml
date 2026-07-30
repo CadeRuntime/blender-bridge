@@ -206,17 +206,29 @@ steps:
   # image — tying its gate to another project's image lifecycle is exactly the
   # coupling the extraction removed — so wrangler comes from npx, pinned.
   #
-  # THE SECRETS LIVE HERE, IN THE LAB. CLOUDFLARE_API_TOKEN and
-  # CLOUDFLARE_ACCOUNT_ID are crow repository secrets on caderuntime/blender-bridge.
+  # THE SECRETS LIVE HERE, IN THE LAB — crow repository secrets on
+  # caderuntime/blender-bridge, named `blender_bridge_cloudflare_*`. The prefix is
+  # deliberate: showcade's own pipelines carry a differently-scoped Cloudflare
+  # token under the bare name, and two credentials with one name is how the wrong
+  # one gets used.
+  #
+  # THE TWO SIDES OF THIS MAPPING ARE NOT INTERCHANGEABLE. The keys are ENV VAR
+  # names and must stay exactly CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID,
+  # because that is what wrangler reads; `from_secret` is the crow SECRET name and
+  # must match what is stored on the repo. Renaming either side to match the other
+  # breaks it.
+  #
   # A `from_secret` naming a secret that does not exist FAILS the step rather than
-  # arriving empty, so a missing one is loud.
+  # arriving empty, so a typo is loud. The secret must also permit the TAG event —
+  # crow secrets carry an event allow-list, and this pipeline runs on `event: tag`
+  # only; a secret restricted to `push` simply would not be injected here.
   - name: deploy-the-index
     image: docker.io/node:24-slim
     environment:
       CLOUDFLARE_API_TOKEN:
-        from_secret: CLOUDFLARE_API_TOKEN
+        from_secret: blender_bridge_cloudflare_api_token
       CLOUDFLARE_ACCOUNT_ID:
-        from_secret: CLOUDFLARE_ACCOUNT_ID
+        from_secret: blender_bridge_cloudflare_account_id
     commands:
       - |
         set -eu
