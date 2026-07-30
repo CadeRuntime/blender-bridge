@@ -74,7 +74,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-files = ["showcade_bridge", "package.py"]
+files = ["showcade_bridge", "package.py", "index.py"]
 
 # MYPY'S SCOPE IS EXACTLY THE bpy-FREE MODULES, and that is not a coincidence or
 # a convenience — it is the same boundary ADR-0007 decision 7 already draws, and

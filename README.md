@@ -28,16 +28,43 @@ version.
 
 ## Install
 
-Build the extension zip from a checkout:
+### From the extension repository — the way that gets updates
+
+> **Not live until the first release is cut.** The URL below does not answer yet;
+> build from source in the meantime. This paragraph goes away with `0.1.0`.
+
+Blender ▸ Preferences ▸ **Get Extensions** ▸ Repositories ▸ **+** ▸ *Add Remote
+Repository*, and paste:
+
+```
+https://extensions.cade.run/index.json
+```
+
+Then find **Showcade Bridge** in the extension list and install it. That is the
+whole setup — Blender re-reads that URL from then on, so a new version arrives as
+an available update rather than as something you have to go looking for.
+
+The repository is one static JSON listing, and the zips it points at live in
+[Releases](https://github.com/caderuntime/blender-bridge/releases), built by public
+CI from public source on the tag. Installing this way tells us nothing about you:
+Blender fetches a file and a zip, and neither request carries an identity.
+
+### From a zip
+
+Take the `.zip` from the [latest
+release](https://github.com/caderuntime/blender-bridge/releases/latest), then
+Blender ▸ Preferences ▸ Add-ons ▸ **Install from Disk** ▸ pick it. Same extension —
+you just have to come back yourself when there is a newer one.
+
+### From source
 
 ```bash
 python3 package.py build          # → dist/showcade_bridge-<version>.zip
 ```
 
-Then Blender ▸ Preferences ▸ Add-ons ▸ **Install from Disk** ▸ pick the zip.
-Tagged builds are published to
-[Releases](https://github.com/caderuntime/blender-bridge/releases) as they are
-cut.
+…then Install from Disk as above. The zip is byte-for-byte deterministic, so a
+build from a release tag is directly comparable with the one attached to that
+Release.
 
 For a development loop, symlink the working tree into Blender's extensions
 directory and restart Blender after an edit rather than re-packaging:
@@ -251,6 +278,33 @@ or `prefs.py`:
 ```bash
 python3 package.py link && blender      # N-sidebar ▸ Showcade
 ```
+
+One test class needs a **Blender on `PATH`** and skips without one:
+`test_index.py`'s conformance check runs Blender's own repository generator
+(`blender_ext.py server-generate`) over a freshly built zip and diffs it against
+what `index.py` produces. That is how the published `index.json` stays a format
+Blender actually reads, rather than one that looked right when it was written. It
+skips in CI, where installing Blender to check a format that moves once per major
+release is not worth the download — so if you touch `index.py`, run the suite
+locally.
+
+## Releases and support
+
+Versions are [semver](https://semver.org); what changed in each is in
+[CHANGELOG.md](CHANGELOG.md). A release is cut by tagging upstream, and a workflow
+here builds the zip, publishes the Release and refreshes the extension repository
+index — the artifact you install is always one public CI built from public source,
+never a zip somebody uploaded from a laptop.
+
+**Support is best effort, and there is no support commitment.** This is a bridge
+between Blender and a product we run, published because it is more useful in the
+open than closed, not as a supported deliverable. Issues and pull requests are
+read and are genuinely welcome ([CONTRIBUTING.md](CONTRIBUTING.md) explains the
+mirror mechanics), and there is no undertaking about response time, fixes, or
+keeping any particular Blender version working. What *is* undertaken: the addon
+declares `blender_version_min` honestly, tests run on the Python versions Blender
+actually bundles, and a release never ships without the suite passing on the exact
+tree being published.
 
 ## Licence
 

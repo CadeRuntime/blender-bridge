@@ -92,8 +92,23 @@ jobs:
       # is not the same as "this is installable". Build it on every change.
       - run: python3 package.py build
 
+      # And the listing that ADVERTISES the zip — on every change, not only when a
+      # tag is cut. release.yml is the one path in this repository that cannot be
+      # exercised before it runs for real, so prove at least that the generator it
+      # calls still reads a freshly built zip and writes a document. The URL is a
+      # stand-in: the real one names a Release that does not exist yet.
+      - name: Generate the extension repository index
+        run: |
+          python3 index.py \
+            --zip "$(ls dist/*.zip)" \
+            --archive-url https://github.com/caderuntime/blender-bridge/releases/download/v0.0.0/placeholder.zip \
+            --out site/index.json
+          cat site/index.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: showcade_bridge-extension
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            site/index.json
           if-no-files-found: error

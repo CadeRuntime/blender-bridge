@@ -60,3 +60,15 @@ steps:
       # not the same as "this is installable".
       - python3 package.py build
       - ls -l dist/
+
+      # And the listing that ADVERTISES the zip — on every change, not only when a
+      # tag is cut. The release workflow is the one path in this repository that
+      # cannot be exercised before it runs for real, so prove at least that the
+      # generator it calls still reads a freshly built zip and writes a document.
+      # The URL is a stand-in: the real one names a Release that does not exist yet.
+      - >
+        python3 index.py
+        --zip "$(ls dist/*.zip)"
+        --archive-url https://github.com/caderuntime/blender-bridge/releases/download/v0.0.0/placeholder.zip
+        --out site/index.json
+      - cat site/index.json
