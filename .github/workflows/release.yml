@@ -1,30 +1,37 @@
-# Release — build the zip, publish it, and refresh the extension repository index.
+# Release — build the extension zip and publish it as a GitHub Release.
 #
-# THIS WORKFLOW IS THE PUBLISHER, and it runs HERE rather than upstream on purpose.
-# A GitHub Release is not a git object, so a push mirror cannot carry one: the
-# canonical upstream (unreachable from the internet, see CONTRIBUTING.md) can only
-# ever push refs and tags. The tag is what crosses, and this is what it triggers.
+# THIS HALF RUNS HERE BECAUSE IT CANNOT RUN ANYWHERE ELSE. A GitHub Release is not
+# a git object, so a push mirror cannot carry one: the canonical upstream
+# (unreachable from the internet, see CONTRIBUTING.md) can only push refs and tags.
+# The tag is what crosses, and this is what it triggers.
 #
-#   upstream `git tag v0.1.0` → mirror → this workflow → zip → Release → index.json
+#   upstream `git tag v0.1.0` → mirror → this workflow → zip → Release
+#                            → upstream .crow/release.yaml → index.json → Pages
 #
 # That inversion buys something real rather than merely working around a
 # limitation: the artifact users install is built by PUBLIC CI from PUBLIC source,
 # which is the property a reproducible extension zip is trying to have in the
-# first place. `package.py` writes byte-identical zips from identical trees, so
-# anyone can rebuild the release and compare.
+# first place. `package.py` writes byte-identical zips from identical trees — and
+# upstream now CHECKS that, by rebuilding this zip and refusing to advertise a
+# published artifact whose bytes it cannot reproduce.
 #
 # WHAT A USER ACTUALLY CONSUMES is not this Release — it is
-# https://extensions.cade.run/index.json, a Blender 4.2+ extension repository.
-# They paste that URL into Blender ▸ Preferences ▸ Get Extensions ▸ Repositories
-# once, and Blender re-reads it forever for updates. The zips stay in GitHub
-# Releases; only the index is served from Cloudflare Pages (bd showcade-8i87.11),
-# which is why `index.py` must be handed an ABSOLUTE archive URL.
+# https://extensions.cade.run/index.json, a Blender 4.2+ extension repository they
+# paste into Blender once and which is then re-read forever for updates.
 #
-# ORDER IS LOAD-BEARING. Pre-flight everything, then publish the Release, then the
-# index that points at it. An index advertising a Release asset that does not
-# exist is a repository that fails on every user's machine; a Release nobody is
-# told about is merely quiet. So the deploy credentials are checked BEFORE
-# anything is published, and the index is written only once the asset URL is real.
+# THAT INDEX IS DEPLOYED FROM UPSTREAM, NOT FROM HERE, and this workflow
+# deliberately holds no Cloudflare credential. Publishing to Cloudflare Pages needs
+# an API token, and Cloudflare tokens CANNOT be scoped to a single Pages project —
+# Pages permissions are account-wide — so the smallest token able to deploy one
+# JSON file can also redeploy every other Pages project on the account, including
+# the one fronting show.cade.run. Storing that in a PUBLIC repository buys nothing
+# and risks everything, so `.crow/release.yaml` upstream waits for the Release this
+# job publishes, fetches the asset, and deploys the index from inside the lab.
+#
+# WHICH MEANS THE ORDER IS INVERTED FROM THE OBVIOUS ONE, on purpose: this job
+# publishes the Release WITHOUT anything advertising it yet, and the index appears
+# minutes later. An index naming an asset that does not exist fails on every user's
+# machine; a Release nobody has been told about is merely quiet.
 
 name: Release
 
@@ -49,18 +56,6 @@ permissions:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
-
-  # The Cloudflare Pages project serving extensions.cade.run (bd showcade-8i87.11).
-  # `--branch` must name that project's PRODUCTION branch: a deploy on any other
-  # branch is published as a PREVIEW under its own alias, so it would succeed,
-  # print a URL, and leave the custom domain still serving the previous index.
-  PAGES_PROJECT: blender-bridge
-  PAGES_BRANCH: main
-
-  # Pinned deliberately. `wrangler@latest` would let somebody else's release
-  # change the behaviour of a publish that only runs when we cut a version — the
-  # worst possible time to discover a CLI change. Same pin as showcade's CI image.
-  WRANGLER_VERSION: 4.112.0
 
 jobs:
   release:
@@ -135,48 +130,6 @@ jobs:
           print(f"release notes: {len(body.splitlines())} lines")
           PY
 
-      - name: The publish credentials must be present
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -eu
-          missing=""
-          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing="$missing CLOUDFLARE_API_TOKEN"
-          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
-          if [ -n "$missing" ]; then
-            echo "::error::missing repository secret(s):$missing"
-            echo "::error::Without them the Release would publish and the extension repository"
-            echo "::error::index would keep advertising the PREVIOUS version — an update nobody"
-            echo "::error::is offered. Failing before anything is published instead."
-            echo "::error::The token is scoped to Pages:Edit on the '$PAGES_PROJECT' project"
-            echo "::error::only; see bd showcade-8i87.11."
-            exit 1
-          fi
-
-      - name: The Pages project must already exist
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -eu
-          # WHY THIS CHECK EXISTS: `wrangler pages deploy` offered a
-          # not-a-terminal prompt to CREATE a missing project answers itself YES.
-          # It would invent a project — with its own *.pages.dev name and no custom
-          # domain — publish there, and exit 0. The index would be live at an
-          # address nobody has, while extensions.cade.run served the old one. So
-          # look first, and say what to do rather than guessing.
-          # Delimited match, not `grep -w`: `-w` treats `-` as a word boundary, so
-          # it would happily accept a project called `blender-bridge-old`.
-          if ! npx --yes "wrangler@$WRANGLER_VERSION" pages project list 2>/dev/null \
-              | grep -qE "(^|[[:space:]|])${PAGES_PROJECT}([[:space:]|]|\$)"; then
-            echo "::error::no Cloudflare Pages project named '$PAGES_PROJECT' on this account."
-            echo "::error::Create it (and attach extensions.cade.run to it) before tagging a"
-            echo "::error::release — bd showcade-8i87.11 owns that setup. Nothing has been"
-            echo "::error::published by this run."
-            exit 1
-          fi
-
       # ── Build and prove ──────────────────────────────────────────────────
 
       # The full suite, again, on the exact tree being published. CI already ran
@@ -194,8 +147,11 @@ jobs:
           python3 package.py build
           zip_path="$(ls dist/*.zip)"
           echo "ZIP_PATH=$zip_path" >> "$GITHUB_ENV"
-          echo "ZIP_NAME=$(basename "$zip_path")" >> "$GITHUB_ENV"
           ls -l dist/
+          # The zip's NAME is deliberately not exported any more. It existed to
+          # compose the index's archive_url; upstream derives that itself from the
+          # tag and the manifest, and the asset URL GitHub serves for a Release
+          # upload is deterministic — /releases/download/<tag>/<filename>.
 
       # ── Publish ──────────────────────────────────────────────────────────
 
@@ -216,87 +172,8 @@ jobs:
             --notes-file release-notes.md \
             --verify-tag
 
-      - name: Write the extension repository index
-        run: |
-          set -eu
-          # The asset URL GitHub serves for a Release upload is deterministic —
-          # /releases/download/<tag>/<filename> — which is what lets the index be
-          # written from the tag and the zip name without querying the API.
-          python3 index.py \
-            --zip "$ZIP_PATH" \
-            --archive-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIP_NAME}" \
-            --out site/index.json
-          cat site/index.json
-
-      - name: Deploy the index to extensions.cade.run
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -eu
-          # DIRECT UPLOAD, not a branch build: the site is one generated file that
-          # exists nowhere in git, and this repository is a mirror whose pushes may
-          # not raise the events a Pages build watches.
-          npx --yes "wrangler@$WRANGLER_VERSION" pages deploy site \
-            --project-name="$PAGES_PROJECT" \
-            --branch="$PAGES_BRANCH"
-
-      - name: Verify the published index describes this release
-        run: |
-          set -eu
-          # END-TO-END, from the address users actually paste in. Pages purges its
-          # edge on deploy, so a stale answer here is a real failure rather than a
-          # caching artefact — and it is the only check that covers the custom
-          # domain, the TLS certificate and the bot-fight rules at once.
-          #
-          # If this fails while everything above passed, the Release is fine and
-          # only the index is behind: re-run this job, or `wrangler pages deploy`
-          # by hand. Nothing needs re-tagging.
-          served=""
-          for attempt in 1 2 3 4 5; do
-            if curl -fsS --max-time 30 https://extensions.cade.run/index.json > published.json; then
-              served=yes
-              break
-            fi
-            echo "attempt $attempt: index not served yet; waiting"
-            sleep 10
-          done
-
-          # Say WHICH failure this is rather than letting the comparison below die
-          # on a missing file: "the URL never answered" and "the URL answered with
-          # the wrong index" have different causes (domain/TLS/challenge versus a
-          # deploy that went somewhere else) and a FileNotFoundError traceback
-          # names neither.
-          if [ -z "$served" ]; then
-            echo "::error::https://extensions.cade.run/index.json did not answer after 5 tries."
-            echo "::error::The Release IS published and its zip is downloadable — only the"
-            echo "::error::index is behind, so nothing needs re-tagging. Check that the custom"
-            echo "::error::domain is attached to the '$PAGES_PROJECT' project and that the zone"
-            echo "::error::is not challenging the request (Blender's updater is not a browser,"
-            echo "::error::so bot-fight mode presents as a broken repository). Then re-run this"
-            echo "::error::job, or deploy the index by hand."
-            exit 1
-          fi
-
-          python3 - <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          published = json.loads(pathlib.Path("published.json").read_text())
-          expected = json.loads(pathlib.Path("site/index.json").read_text())
-          if published != expected:
-              print("::error::https://extensions.cade.run/index.json is not what this job wrote.")
-              print(f"::error::published: {json.dumps(published)[:400]}")
-              sys.exit(1)
-          entry = published["data"][0]
-          print(f"published {entry['id']} {entry['version']} → {entry['archive_url']}")
-          PY
-
       - uses: actions/upload-artifact@v4
         with:
           name: showcade_bridge-${{ inputs.tag || github.ref_name }}
-          path: |
-            dist/*.zip
-            site/index.json
+          path: dist/*.zip
           if-no-files-found: error

@@ -15,8 +15,10 @@ forever after. There is no server, no API and no account.
         --out site/index.json
 
 where `$RELEASE` is `https://github.com/caderuntime/blender-bridge/releases`.
-`.github/workflows/release.yml` is the caller that matters; it composes that URL
-from the tag and the built zip's name.
+`.crow/release.yaml` upstream is the caller that matters. It runs this against the
+zip it DOWNLOADED from that Release — not against a local build — so the hash and
+size describe the exact bytes users receive, and the URL is one it has already
+proven resolves.
 
 THE METADATA IS READ OUT OF THE ZIP, not out of the working tree. A
 `blender_manifest.toml` in a checkout describes what the next build *would* be;

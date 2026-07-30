@@ -3,9 +3,10 @@
 Versions follow [semantic versioning](https://semver.org). The version lives in
 `showcade_bridge/blender_manifest.toml` (and `bl_info`, which `test_packaging.py`
 keeps in step); a release is cut by tagging `v<version>` on the canonical
-upstream, which the mirror carries to GitHub, where a workflow builds the zip,
-publishes the Release and refreshes the extension repository index. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for that path in full.
+upstream. The mirror carries the tag to GitHub, where a workflow builds the zip
+and publishes the Release; upstream then fetches that published zip, checks it is
+byte-identical to what this source builds, and deploys the extension repository
+index describing it. See [CONTRIBUTING.md](CONTRIBUTING.md) for that path in full.
 
 **There are deliberately no dates here.** GitHub records when each Release was
 published and a hand-maintained date is one more thing to get wrong at the worst

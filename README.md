@@ -291,10 +291,16 @@ locally.
 ## Releases and support
 
 Versions are [semver](https://semver.org); what changed in each is in
-[CHANGELOG.md](CHANGELOG.md). A release is cut by tagging upstream, and a workflow
-here builds the zip, publishes the Release and refreshes the extension repository
-index — the artifact you install is always one public CI built from public source,
-never a zip somebody uploaded from a laptop.
+[CHANGELOG.md](CHANGELOG.md). A release is cut by tagging upstream. A workflow
+**here** builds the zip and publishes the Release, so the artifact you install is
+always one public CI built from public source, never a zip somebody uploaded from
+a laptop — and because `package.py` is byte-deterministic, you can rebuild any
+release from its tag and compare hashes yourself.
+
+The extension repository index that advertises it is deployed separately, from
+upstream, *after* verifying that the published zip is byte-identical to what this
+source builds. So a release is announced to Blender only once its artifact has
+been independently reproduced.
 
 **Support is best effort, and there is no support commitment.** This is a bridge
 between Blender and a product we run, published because it is more useful in the
