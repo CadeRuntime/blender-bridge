@@ -23,6 +23,42 @@ clone:
       skip-verify: true
 
 steps:
+  # The forge's merge button authors the merge commit as whoever clicked it, so a
+  # single convenient click puts a personal identity into the public history of a
+  # public repository. It has happened twice, and both times the only remedy was
+  # rewriting published history. CONTRIBUTING.md documents merging locally
+  # instead; this is what makes forgetting that visible immediately rather than
+  # months later.
+  #
+  # MERGE COMMITS ONLY. Contributor commits keep their own Author, which is the
+  # promise CONTRIBUTING.md makes to anyone who sends a pull request — checking
+  # every commit here would turn that promise into a CI failure.
+  - name: merge-commit-authorship
+    image: docker.io/alpine/git:latest
+    commands:
+      - |
+        set -eu
+        # Fail closed on a shallow clone: `git log` over a truncated history
+        # would find no merges and pass while checking nothing.
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --unshallow --quiet || {
+            echo "shallow clone and could not deepen it — this check would pass vacuously"
+            exit 1
+          }
+        fi
+        bad="$(git log --merges --format='%h %an <%ae>' | grep -v '<caderuntime@cade.run>$' || true)"
+        if [ -n "$bad" ]; then
+          echo "merge commits not authored by the project identity:"
+          echo "$bad"
+          echo
+          echo "The forge's merge button authors as the account that clicked it."
+          echo "Merge locally instead — see 'Merging an upstream pull request' in"
+          echo "CONTRIBUTING.md. Fixing this after the fact means rewriting"
+          echo "published history, so do it before the next merge, not after."
+          exit 1
+        fi
+        echo "all $(git log --merges --oneline | wc -l) merge commits are caderuntime@cade.run"
+
   - name: lint
     image: docker.io/python:3.11-slim
     commands:

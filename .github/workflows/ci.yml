@@ -20,6 +20,39 @@ permissions:
   contents: read
 
 jobs:
+  # The forge's merge button authors the merge commit as whoever clicked it, so a
+  # single convenient click puts a personal identity into the public history of a
+  # public repository. It has happened twice, and both times the only remedy was
+  # rewriting published history. CONTRIBUTING.md documents merging locally
+  # instead; this makes forgetting that visible immediately rather than months on.
+  #
+  # MERGE COMMITS ONLY. Contributor commits keep their own Author, which is the
+  # promise CONTRIBUTING.md makes to anyone who sends a pull request — checking
+  # every commit would turn that promise into a CI failure.
+  merge-commit-authorship:
+    name: merge commits are the project identity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history, not the default depth-1: this check reads every
+          # merge commit, and a shallow clone would find none and pass while
+          # checking nothing.
+          fetch-depth: 0
+
+      - run: |
+          set -eu
+          bad="$(git log --merges --format='%h %an <%ae>' | grep -v '<caderuntime@cade.run>$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::merge commits not authored by the project identity:"
+            echo "$bad"
+            echo "::error::Merge locally instead — see 'Merging an upstream pull request'"
+            echo "::error::in CONTRIBUTING.md. Fixing it afterwards means rewriting"
+            echo "::error::published history."
+            exit 1
+          fi
+          echo "all $(git log --merges --oneline | wc -l) merge commits are caderuntime@cade.run"
+
   lint:
     name: ruff + mypy
     runs-on: ubuntu-latest
