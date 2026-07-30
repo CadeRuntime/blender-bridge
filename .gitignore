@@ -1,6 +1,12 @@
 # Build output — `python3 package.py build` writes the installable zip here.
 /dist/
 
+# The extension-repository listing `index.py` writes for a release. Generated
+# from the built zip and published straight to Cloudflare Pages by
+# .github/workflows/release.yml; committing it would be committing a copy that
+# is wrong the moment the version moves.
+/site/
+
 # Python bytecode. `python3 -m compileall .` is the fast syntax gate and leaves
 # these behind everywhere, including inside test/.
 __pycache__/

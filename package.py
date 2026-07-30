@@ -192,7 +192,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "build":
         out = build()
-        print(f"[blender] packaged {out.relative_to(ADDON_DIR.parents[1])} ({out.stat().st_size} bytes)")
+        # Repo-relative. This printed relative to `ADDON_DIR.parents[1]` — the
+        # showcade repo root, back when the addon lived at `tools/blender/`. After
+        # the extraction (bd showcade-8i87.5) that same expression reaches ABOVE
+        # this repository and prints whatever the checkout's parent directory
+        # happens to be called, into CI logs and release output.
+        print(f"[blender] packaged {out.relative_to(ADDON_DIR)} ({out.stat().st_size} bytes)")
         return 0
     destination = link(args.blender_version)
     print(f"[blender] linked {destination} -> {PACKAGE_DIR}")
