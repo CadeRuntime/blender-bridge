@@ -187,7 +187,7 @@ send_selection(endpoint="https://show.cade.run/api/assets", token="…", name="B
 | `showcade_bridge/export_glb.py` | yes | `bpy.ops.export_scene.gltf` → GLB bytes |
 | `showcade_bridge/props.py` | yes | `ShowcadeLink` — the identity stored on a Collection |
 | `showcade_bridge/prefs.py` | yes | preferences + the `Ctrl+Shift+E` keymap item |
-| `showcade_bridge/ops.py` | yes | the five operators |
+| `showcade_bridge/ops.py` | yes | the seven operators — *Send to Showcade*, *Test Connection*, *Sign in*, *Sign out*, *New Link*, *Unlink*, *Copy Handle* |
 | `showcade_bridge/panel.py` | yes | `VIEW3D_PT_showcade` (N-sidebar ▸ Showcade) |
 | `showcade_bridge/blender_manifest.toml` | — | the 4.2+ extension manifest |
 | `package.py` | no | build the zip / symlink for development |

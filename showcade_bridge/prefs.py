@@ -13,10 +13,15 @@ user's change lands in their user keyconfig and persists like any other.
 edit-mode edge menu, which this never sees.
 
 Defaults point at `task dev:assets` (`http://localhost:8787/api/assets`, token
-`dev`) because that is the only thing this addon can ever talk to — production
-ships no upload token and answers every write with
-`403 catalog is read-only`, so a prod endpoint is a misconfiguration, not a
-deployment (ADR 0007).
+`dev`) because that is what a fresh install can talk to with no setup — not
+because it is the only thing it can ever talk to. The hosted product
+(`https://show.cade.run/api/assets`) is an ordinary target, and the normal way to
+reach it is **Sign in**: the device grant fills in `session_token`, which takes
+precedence over the upload token from there on. What a hosted deployment has no
+use for is the shared *token* — it ships none and answers a token-only write with
+`403 catalog is read-only` — so it is that credential, not the endpoint, that is
+the misconfiguration. (ADR 0007 predates the device grant and calls the endpoint
+itself the mistake; `bd showcade-fmq8` is where the two credentials were reconciled.)
 """
 
 from __future__ import annotations
