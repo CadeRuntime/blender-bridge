@@ -126,7 +126,10 @@ _HINTS: Mapping[int, str] = {
         "not authorized — if you signed in, the session has expired (Sign in again); "
         "otherwise check the upload token in the addon preferences"
     ),
-    403: "that endpoint is read-only (no upload token configured) — you are probably on prod",
+    403: (
+        "that endpoint is read-only (no upload token configured) — Sign in for a "
+        "session token, or set the upload token in the addon preferences"
+    ),
     404: "no such asset at that endpoint",
     413: f"the GLB is over the {MAX_MODEL_BYTES // (1024 * 1024)} MB cap — decimate, or drop 4K textures",
     415: "the bytes are not a recognized model — export_format must be GLB",

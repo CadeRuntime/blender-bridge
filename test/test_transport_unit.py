@@ -263,7 +263,7 @@ class MetadataOnlyFallback(unittest.TestCase):
 
 class Hints(unittest.TestCase):
     def test_401_and_403_name_different_actions(self):
-        # 403 means "read-only endpoint, you are on prod"; 401 means "bad token".
+        # 403 means "read-only endpoint, sign in for a session token"; 401 means "bad token".
         self.assertNotEqual(transport.hint_for(401), transport.hint_for(403))
         self.assertIn("token", transport.hint_for(401))
         self.assertIn("read-only", transport.hint_for(403))
