@@ -30,9 +30,6 @@ version.
 
 ### From the extension repository — the way that gets updates
 
-> **Not live until the first release is cut.** The URL below does not answer yet;
-> build from source in the meantime. This paragraph goes away with `0.1.0`.
-
 Blender ▸ Preferences ▸ **Get Extensions** ▸ Repositories ▸ **+** ▸ *Add Remote
 Repository*, and paste:
 
