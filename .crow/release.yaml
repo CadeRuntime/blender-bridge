@@ -232,15 +232,54 @@ steps:
     commands:
       - |
         set -eu
+        # NO CREDENTIAL IS NOT A MISSING PROJECT, and until v0.1.0 this step
+        # could not tell them apart: it swallowed wrangler's stderr and read any
+        # failure of the listing below as "the project does not exist". On the
+        # first real release the secrets did not arrive, wrangler exited with
+        # "necessary to set a CLOUDFLARE_API_TOKEN", and the log accused the
+        # Cloudflare account of missing a project that was in fact serving
+        # https://blender-bridge.pages.dev the whole time. Check the credential
+        # first, and name the reason it is most likely absent.
+        missing=""
+        [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing="CLOUDFLARE_API_TOKEN"
+        [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+        if [ -n "$missing" ]; then
+          echo "Cloudflare credentials did not arrive in this step:$missing"
+          echo
+          echo "A \`from_secret\` naming a secret that does not exist FAILS the step, so"
+          echo "the secret exists and was simply not injected here. Crow secrets carry"
+          echo "an EVENT ALLOW-LIST and this pipeline runs on \`event: tag\` only — a"
+          echo "secret permitted only for \`push\` is silently absent on a tag."
+          echo
+          echo "Fix: crow ▸ caderuntime/blender-bridge ▸ Settings ▸ Secrets, and allow"
+          echo "the tag event on blender_bridge_cloudflare_api_token and"
+          echo "blender_bridge_cloudflare_account_id. Then restart this pipeline."
+          echo "Nothing has been published by this run."
+          exit 1
+        fi
+
         # LOOK BEFORE DEPLOYING. `wrangler pages deploy` offers a create-this-
         # missing-project prompt, and a non-TTY answers it YES: a typo would
         # invent a project, publish there, exit 0, and leave extensions.cade.run
         # serving the previous index while the log said success.
-        if ! npx --yes wrangler@4.112.0 pages project list 2>/dev/null \
-            | grep -qE '(^|[[:space:]|])blender-bridge([[:space:]|]|$)'; then
-          echo "no Cloudflare Pages project named 'blender-bridge' on this account."
-          echo "Create it, and attach extensions.cade.run, before tagging a release"
-          echo "(bd showcade-8i87.11). Nothing has been published by this run."
+        #
+        # Distinguish the two ways this can go wrong. The listing FAILING is an
+        # auth or account fault and its stderr is the diagnosis, so print it; the
+        # listing SUCCEEDING without the project is the real absence.
+        if ! npx --yes wrangler@4.112.0 pages project list >/tmp/projects.txt 2>/tmp/projects.err; then
+          echo "could not list Cloudflare Pages projects — this is an auth or account"
+          echo "failure, NOT evidence that the project is missing. wrangler said:"
+          cat /tmp/projects.err
+          echo "Nothing has been published by this run."
+          exit 1
+        fi
+        if ! grep -qE '(^|[[:space:]|])blender-bridge([[:space:]|]|$)' /tmp/projects.txt; then
+          echo "no Cloudflare Pages project named 'blender-bridge' on account"
+          echo "$CLOUDFLARE_ACCOUNT_ID. Create it, and attach extensions.cade.run,"
+          echo "before tagging a release (bd showcade-8i87.11). The account was"
+          echo "reachable and answered with:"
+          cat /tmp/projects.txt
+          echo "Nothing has been published by this run."
           exit 1
         fi
 
@@ -285,16 +324,37 @@ steps:
         url = "https://extensions.cade.run/index.json"
         agent = "showcade-bridge-release/1.0 (+https://github.com/caderuntime/blender-bridge)"
 
+        # A STALE ANSWER IS NOT A WRONG ANSWER YET. `wrangler pages deploy`
+        # returns once Cloudflare has accepted the upload, not once the custom
+        # domain serves it, so the first read after a deploy can legitimately
+        # return the PREVIOUS index — a 200, valid JSON, merely older. v0.1.0
+        # went red here for exactly that: the loop retried transport failures
+        # but took the stale body as a verdict, failed on the first read, and
+        # blamed a preview alias while the deploy had landed on production and
+        # was serving correctly minutes later.
+        #
+        # So poll for AGREEMENT rather than for a response, and keep the
+        # diagnosis for the case where agreement never comes.
+        deadline = time.time() + (5 * 60)
         published = None
-        for attempt in range(5):
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": agent})
                 with urllib.request.urlopen(request, timeout=30) as response:
                     published = json.loads(response.read())
-                break
             except (urllib.error.URLError, ValueError) as exception:
-                print(f"attempt {attempt + 1}: {exception}")
-                time.sleep(10)
+                print(f"attempt {attempt}: {exception}")
+                published = None
+            if published == expected:
+                break
+            if published is not None:
+                serving = [entry.get("version") for entry in published.get("data", [])]
+                print(f"attempt {attempt}: still serving {serving or 'an empty index'}")
+            if time.time() > deadline:
+                break
+            time.sleep(15)
 
         if published is None:
             print(f"{url} did not answer.")
@@ -305,7 +365,8 @@ steps:
             raise SystemExit(1)
 
         if published != expected:
-            print(f"{url} is not what this pipeline wrote.")
+            print(f"{url} is not what this pipeline wrote, and did not become it")
+            print("within 5 minutes — far longer than propagation takes.")
             print(f"published: {json.dumps(published)[:400]}")
             print("Most likely the deploy landed on a preview alias rather than the")
             print("production branch. Re-running is safe.")
