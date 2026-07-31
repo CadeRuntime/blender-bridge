@@ -324,16 +324,37 @@ steps:
         url = "https://extensions.cade.run/index.json"
         agent = "showcade-bridge-release/1.0 (+https://github.com/caderuntime/blender-bridge)"
 
+        # A STALE ANSWER IS NOT A WRONG ANSWER YET. `wrangler pages deploy`
+        # returns once Cloudflare has accepted the upload, not once the custom
+        # domain serves it, so the first read after a deploy can legitimately
+        # return the PREVIOUS index — a 200, valid JSON, merely older. v0.1.0
+        # went red here for exactly that: the loop retried transport failures
+        # but took the stale body as a verdict, failed on the first read, and
+        # blamed a preview alias while the deploy had landed on production and
+        # was serving correctly minutes later.
+        #
+        # So poll for AGREEMENT rather than for a response, and keep the
+        # diagnosis for the case where agreement never comes.
+        deadline = time.time() + (5 * 60)
         published = None
-        for attempt in range(5):
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": agent})
                 with urllib.request.urlopen(request, timeout=30) as response:
                     published = json.loads(response.read())
-                break
             except (urllib.error.URLError, ValueError) as exception:
-                print(f"attempt {attempt + 1}: {exception}")
-                time.sleep(10)
+                print(f"attempt {attempt}: {exception}")
+                published = None
+            if published == expected:
+                break
+            if published is not None:
+                serving = [entry.get("version") for entry in published.get("data", [])]
+                print(f"attempt {attempt}: still serving {serving or 'an empty index'}")
+            if time.time() > deadline:
+                break
+            time.sleep(15)
 
         if published is None:
             print(f"{url} did not answer.")
@@ -344,7 +365,8 @@ steps:
             raise SystemExit(1)
 
         if published != expected:
-            print(f"{url} is not what this pipeline wrote.")
+            print(f"{url} is not what this pipeline wrote, and did not become it")
+            print("within 5 minutes — far longer than propagation takes.")
             print(f"published: {json.dumps(published)[:400]}")
             print("Most likely the deploy landed on a preview alias rather than the")
             print("production branch. Re-running is safe.")
