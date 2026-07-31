@@ -232,15 +232,54 @@ steps:
     commands:
       - |
         set -eu
+        # NO CREDENTIAL IS NOT A MISSING PROJECT, and until v0.1.0 this step
+        # could not tell them apart: it swallowed wrangler's stderr and read any
+        # failure of the listing below as "the project does not exist". On the
+        # first real release the secrets did not arrive, wrangler exited with
+        # "necessary to set a CLOUDFLARE_API_TOKEN", and the log accused the
+        # Cloudflare account of missing a project that was in fact serving
+        # https://blender-bridge.pages.dev the whole time. Check the credential
+        # first, and name the reason it is most likely absent.
+        missing=""
+        [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing="CLOUDFLARE_API_TOKEN"
+        [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+        if [ -n "$missing" ]; then
+          echo "Cloudflare credentials did not arrive in this step:$missing"
+          echo
+          echo "A \`from_secret\` naming a secret that does not exist FAILS the step, so"
+          echo "the secret exists and was simply not injected here. Crow secrets carry"
+          echo "an EVENT ALLOW-LIST and this pipeline runs on \`event: tag\` only — a"
+          echo "secret permitted only for \`push\` is silently absent on a tag."
+          echo
+          echo "Fix: crow ▸ caderuntime/blender-bridge ▸ Settings ▸ Secrets, and allow"
+          echo "the tag event on blender_bridge_cloudflare_api_token and"
+          echo "blender_bridge_cloudflare_account_id. Then restart this pipeline."
+          echo "Nothing has been published by this run."
+          exit 1
+        fi
+
         # LOOK BEFORE DEPLOYING. `wrangler pages deploy` offers a create-this-
         # missing-project prompt, and a non-TTY answers it YES: a typo would
         # invent a project, publish there, exit 0, and leave extensions.cade.run
         # serving the previous index while the log said success.
-        if ! npx --yes wrangler@4.112.0 pages project list 2>/dev/null \
-            | grep -qE '(^|[[:space:]|])blender-bridge([[:space:]|]|$)'; then
-          echo "no Cloudflare Pages project named 'blender-bridge' on this account."
-          echo "Create it, and attach extensions.cade.run, before tagging a release"
-          echo "(bd showcade-8i87.11). Nothing has been published by this run."
+        #
+        # Distinguish the two ways this can go wrong. The listing FAILING is an
+        # auth or account fault and its stderr is the diagnosis, so print it; the
+        # listing SUCCEEDING without the project is the real absence.
+        if ! npx --yes wrangler@4.112.0 pages project list >/tmp/projects.txt 2>/tmp/projects.err; then
+          echo "could not list Cloudflare Pages projects — this is an auth or account"
+          echo "failure, NOT evidence that the project is missing. wrangler said:"
+          cat /tmp/projects.err
+          echo "Nothing has been published by this run."
+          exit 1
+        fi
+        if ! grep -qE '(^|[[:space:]|])blender-bridge([[:space:]|]|$)' /tmp/projects.txt; then
+          echo "no Cloudflare Pages project named 'blender-bridge' on account"
+          echo "$CLOUDFLARE_ACCOUNT_ID. Create it, and attach extensions.cade.run,"
+          echo "before tagging a release (bd showcade-8i87.11). The account was"
+          echo "reachable and answered with:"
+          cat /tmp/projects.txt
+          echo "Nothing has been published by this run."
           exit 1
         fi
 
